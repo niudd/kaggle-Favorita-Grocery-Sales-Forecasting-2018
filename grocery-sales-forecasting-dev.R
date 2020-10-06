@@ -76,38 +76,73 @@ buildFeat<- function(ds, dh, d0, grp.cols) {
         sales_mean=round(mean(unit_sales, na.rm = T), 2),
         sales_median=round(median(unit_sales, na.rm = T), 2),
         sales_std=round(sd(unit_sales, na.rm = T), 2),
-        sales_last_date=max(date),
+        sales_last_date=agg_window-max((unit_sales>0)*(1:agg_window)),
         sales_zero_count=sum(unit_sales==0),
         sales_mean_decay=round(sum(unit_sales*0.95**(agg_window:1)), 2),
         sales_mean_diff=round(sum(diff(unit_sales), na.rm = T), 2),
-        #sales_mean_dow=round(, 2),
         onpromo_count=sum(onpromotion==1),
         onpromo_mean=round(mean(onpromotion==1), 2)
       )
-    if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], agg_window, sep = "_")); datecol <- colnames(dhf)[8]}
-    else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], agg_window, sep = '_')); datecol <- colnames(dhf)[7]}
+    if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], agg_window, sep = "_"))} #datecol <- colnames(dhf)[8]
+    else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], agg_window, sep = '_'))} #datecol <- colnames(dhf)[7]
     ds <- ds %>% left_join(dhf, by = grp.cols); gc()
-    ds[, datecol] <- as.integer(ds$date - ds%>%pull(datecol))
+    #ds[, datecol] <- as.integer(ds$date - ds%>%pull(datecol))
     
-    #2. sales only on promo
+    #2.1 sales only on promo
     dhf <- dhw %>% 
-      filter(onpromotion==1) %>%
+      #filter(onpromotion==1) %>%
       group_by(.dots = grp.cols) %>% 
       summarise(
-        #sales_onpromo_min=round(min(unit_sales), 2),
-        #sales_onpromo_max=round(max(unit_sales), 2),
-        sales_onpromo_mean=round(mean(unit_sales, na.rm = T), 2),
-        #sales_onpromo_median=round(median(unit_sales, na.rm = T), 2),
-        #sales_onpromo_std=round(sd(unit_sales, na.rm = T), 2),
-        sales_onpromo_last_date=max(date)
+        sales_onpromo_mean=round(sum(unit_sales*(onpromotion==1), na.rm = T)/(sum(onpromotion==1)+1), 2),
+        sales_onpromo_last_date=agg_window-max((unit_sales>0)*(1:agg_window)*(onpromotion==1), na.rm = T),
+        sales_onpromo_mean_decay=round(sum(unit_sales*(onpromotion==1)*0.95**(agg_window:1), na.rm = T), 2)
       )
-    if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], agg_window, sep = "_")); datecol <- colnames(dhf)[4]}
-    else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], agg_window, sep = '_')); datecol <- colnames(dhf)[3]}
+    if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], agg_window, sep = "_"))} #datecol <- colnames(dhf)[4]
+    else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], agg_window, sep = '_'))} #datecol <- colnames(dhf)[3]
     ds <- ds %>% left_join(dhf, by = grp.cols); gc()
-    ds[, datecol] <- as.integer(ds$date - ds%>%pull(datecol))
-    
+    #ds[, datecol] <- as.integer(ds$date - ds%>%pull(datecol))
     rm(dhw); gc()
+    
+    #2.2 sales not on promo
+    # dhw <- dh %>% filter(date>=d0-days(agg_window))
+    # dhw[dhw$onpromotion!=0, 'unit_sales'] <- NA; gc()
+    # dhf <- dhw %>% 
+    #   #filter(onpromotion==1) %>%
+    #   group_by(.dots = grp.cols) %>% 
+    #   summarise(
+    #     sales_notpromo_mean=round(mean(unit_sales, na.rm = T), 2),
+    #     sales_notpromo_last_date=agg_window-max((unit_sales>0)*(1:agg_window), na.rm = T),
+    #     sales_notpromo_mean_decay=round(sum(unit_sales*0.95**(agg_window:1), na.rm = T), 2)
+    #   )
+    # if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], agg_window, sep = "_")); datecol <- colnames(dhf)[4]}
+    # else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], agg_window, sep = '_')); datecol <- colnames(dhf)[3]}
+    # ds <- ds %>% left_join(dhf, by = grp.cols); gc()
+    # ds[, datecol] <- as.integer(ds$date - ds%>%pull(datecol))
+    # rm(dhw); gc()
   }
+  #----3. weekly/dow agg -28 ----
+  dhw <- dh %>% filter(date>=d0-28) %>% mutate(dow=wday(date))
+  dhf <- dhw %>%
+    group_by(.dots = c(grp.cols, 'dow')) %>% 
+    summarise(sales_28_dow=round(mean(unit_sales, na.rm = T), 2)) %>% 
+    pivot_wider(names_from = 'dow', values_from = sales_28_dow, names_prefix = 'sales_28_dow')
+  if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], sep = "_"))}
+  else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], sep = '_'))}
+  ds <- ds %>% left_join(dhf, by = grp.cols); gc()
+  rm(dhw); gc()
+  #----
+  #----4. weekly/dow agg -140 ----
+  dhw <- dh %>% filter(date>=d0-140) %>% mutate(dow=wday(date))
+  dhf <- dhw %>%
+    group_by(.dots = c(grp.cols, 'dow')) %>% 
+    summarise(sales_140_dow=round(mean(unit_sales, na.rm = T), 2)) %>% 
+    pivot_wider(names_from = 'dow', values_from = sales_140_dow, names_prefix = 'sales_140_dow')
+  if (length(grp.cols)==2) {colnames(dhf) <- c(grp.cols, paste(paste(grp.cols, collapse = "_"), colnames(dhf)[-1:-2], sep = "_"))}
+  else if (length(grp.cols)==1) {colnames(dhf) <- c(grp.cols, paste(grp.cols, colnames(dhf)[-1], sep = '_'))}
+  ds <- ds %>% left_join(dhf, by = grp.cols); gc()
+  rm(dhw); gc()
+  #----
+  #return output
   ds
 }
 
@@ -210,8 +245,8 @@ for (d in 1:ntest_dates) {
                  seed=42)
   sales_model <- lgb.train(params, 
                            lgb.dtr, valids = list(train=lgb.dtr,valid=lgb.dval),
-                           nrounds=2000, learning_rate=0.02, early_stopping_rounds=100,
-                           num_threads=8, verbose = 1, eval_freq=10)
+                           nrounds=500, learning_rate=0.02, early_stopping_rounds=100,
+                           num_threads=8, verbose = 1, eval_freq=10) #nrounds=2000
   printTimestamp('LightGBM training completed')
   
   #tree_imp <- lgb.importance(sales_model, percentage = TRUE)
@@ -260,12 +295,12 @@ for (d in 1:ntest_dates) {
 #----
 
 #-------------------------- submit --------------------------
-write.csv(sub.all, file = "submission/1005-01-perish-new-feat.csv", row.names = F)
+write.csv(sub.all, file = "submission/1006-01-feat.csv", row.names = F)
 
 grp <- dg %>% group_by(store_nbr, item_nbr) %>% summarise(exist=1)
 sub.all2 <- test %>% select(-unit_sales) %>% left_join(sub.all, by = 'id') %>% left_join(grp, by = c('store_nbr', 'item_nbr'))
 sub.all2[is.na(sub.all2$exist), 'unit_sales'] <- 0
 sub.all2 <- sub.all2 %>% select(id, unit_sales)
-write.csv(sub.all2, file = "submission/1005-02-perish-new-feat.csv", row.names = F)
+write.csv(sub.all2, file = "submission/1006-02-feat.csv", row.names = F)
 
 #-------------------------- End --------------------------
